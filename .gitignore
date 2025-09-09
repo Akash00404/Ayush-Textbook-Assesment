@@ -1,0 +1,17 @@
+﻿node_modules/
+**/node_modules/
+dist/
+build/
+**/dist/
+**/build/
+.env
+**/.env
+prisma/.env
+backend/.env
+uploads/
+**/uploads/
+*.log
+.vite/
+coverage/
+temp/
+tmp/
