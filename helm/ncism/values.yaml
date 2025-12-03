@@ -1,0 +1,73 @@
+replicaCount: 3
+
+image:
+  backend:
+    repository: ncism-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: ncism-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 80
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: ncism.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ncism-tls
+      hosts:
+        - ncism.example.com
+
+postgres:
+  enabled: true
+  storage: 20Gi
+
+redis:
+  enabled: true
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+resources:
+  backend:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  frontend:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true
+
+logging:
+  enabled: true
+  elasticsearch:
+    enabled: true
+

@@ -10,6 +10,8 @@ import {
   ClipboardDocumentCheckIcon,
   DocumentChartBarIcon,
   ClockIcon,
+  CogIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline'
 
 interface SidebarProps {
@@ -24,8 +26,10 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, forRoles: [UserRole.ADMIN, UserRole.SECRETARIAT, UserRole.REVIEWER, UserRole.COMMITTEE] },
     { name: 'Books', href: '/books', icon: BookOpenIcon, forRoles: [UserRole.ADMIN, UserRole.SECRETARIAT, UserRole.REVIEWER, UserRole.COMMITTEE] },
-    { name: 'My Reviews', href: '/dashboard', icon: ClipboardDocumentCheckIcon, forRoles: [UserRole.REVIEWER] },
+    { name: 'My Assignments', href: '/assignments', icon: ClipboardDocumentCheckIcon, forRoles: [UserRole.REVIEWER] },
+    { name: 'Secretariat', href: '/secretariat', icon: ChartBarIcon, forRoles: [UserRole.SECRETARIAT, UserRole.ADMIN] },
     { name: 'Reports', href: '/books', icon: DocumentChartBarIcon, forRoles: [UserRole.SECRETARIAT, UserRole.COMMITTEE] },
+    { name: 'Admin Panel', href: '/admin', icon: CogIcon, forRoles: [UserRole.ADMIN] },
     { name: 'Audit Logs', href: '/audit-logs', icon: ClockIcon, forRoles: [UserRole.ADMIN] },
   ]
 

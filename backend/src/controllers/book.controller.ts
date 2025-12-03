@@ -112,11 +112,15 @@ export const getAllBooks = async (
         break;
 
       case UserRole.COMMITTEE:
-        // Committee members can see books that are under review or completed
+        // Committee members can see books that are pending, under review, or completed
         books = await prisma.book.findMany({
           where: {
             status: {
-              in: [BookStatus.UNDER_REVIEW, BookStatus.REVIEW_COMPLETED],
+              in: [
+                BookStatus.PENDING_REVIEW,
+                BookStatus.UNDER_REVIEW,
+                BookStatus.REVIEW_COMPLETED,
+              ],
             },
           },
           include: {
@@ -143,19 +147,15 @@ export const getAllBooks = async (
         break;
 
       case UserRole.REVIEWER:
-        // Reviewers can only see books assigned to them
+        // Reviewers can see all books list (visibility only). Assignments for them are included.
         books = await prisma.book.findMany({
-          where: {
-            assignments: {
-              some: {
-                reviewer_id: req.user!.id,
-              },
-            },
-          },
           include: {
+            uploader: {
+              select: { id: true, name: true, email: true },
+            },
             assignments: {
-              where: {
-                reviewer_id: req.user!.id,
+              include: {
+                reviewer: { select: { id: true, name: true, email: true } },
               },
             },
           },
@@ -554,6 +554,59 @@ export const recordDecision = async (
       status: 'success',
       data: {
         committeeDecision,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get approved books for public portal (no authentication required)
+export const getPublicApprovedBooks = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // Only return approved books with basic information
+    const books = await prisma.book.findMany({
+      where: {
+        status: BookStatus.APPROVED,
+      },
+      select: {
+        id: true,
+        title: true,
+        authors: true,
+        publisher: true,
+        edition: true,
+        syllabus_version: true,
+        uploaded_at: true,
+        status: true,
+      },
+      orderBy: {
+        uploaded_at: 'desc',
+      },
+    });
+
+    // Transform to match frontend Book interface
+    const transformedBooks = books.map((book) => ({
+      id: book.id,
+      title: book.title,
+      author: book.authors,
+      publisher: book.publisher,
+      edition: book.edition,
+      year: new Date(book.uploaded_at).getFullYear(),
+      subject: book.syllabus_version,
+      uploadDate: book.uploaded_at.toISOString(),
+      status: book.status,
+      filePath: book.id, // Will be used to construct file URL
+    }));
+
+    return res.status(200).json({
+      status: 'success',
+      results: transformedBooks.length,
+      data: {
+        books: transformedBooks,
       },
     });
   } catch (error) {

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ncism
+description: NCISM Textbook Review System Helm Chart
+type: application
+version: 1.0.0
+appVersion: "3.0.0"
+

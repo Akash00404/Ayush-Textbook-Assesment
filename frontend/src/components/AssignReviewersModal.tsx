@@ -3,7 +3,8 @@ import { Dialog } from '@headlessui/react'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { toast } from 'react-toastify'
-import axios, { AxiosError } from 'axios'
+import { AxiosError } from 'axios'
+import axios from '../utils/axios'
 import { Assignment } from '../types/book'
 import { User, UserRole } from '../types/user'
 
@@ -23,9 +24,10 @@ const AssignReviewersModal = ({
   currentAssignments,
 }: AssignReviewersModalProps) => {
   const [selectedReviewers, setSelectedReviewers] = useState<string[]>(
-    currentAssignments.map((assignment) => assignment.reviewerId)
+    currentAssignments.map((assignment: any) => assignment.reviewerId ?? assignment.reviewer_id)
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [dueDate, setDueDate] = useState<string>('')
 
   // Fetch available reviewers
   const { data: reviewers, isLoading } = useQuery<User[]>(
@@ -41,7 +43,10 @@ const AssignReviewersModal = ({
   // Assign reviewers mutation
   const assignReviewersMutation = useMutation(
     async (reviewerIds: string[]) => {
-      return axios.post(`/books/${bookId}/assign`, { reviewerIds })
+      return axios.post(`/books/${bookId}/assign`, {
+        reviewer_ids: reviewerIds,
+        due_date: dueDate,
+      })
     },
     {
       onSuccess: () => {
@@ -70,13 +75,18 @@ const AssignReviewersModal = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (selectedReviewers.length < 3) {
-      toast.error('Please select at least 3 reviewers')
+    if (selectedReviewers.length < 1) {
+      toast.error('Please select at least 1 reviewer')
       return
     }
     
     if (selectedReviewers.length > 5) {
       toast.error('You can select a maximum of 5 reviewers')
+      return
+    }
+    
+    if (!dueDate) {
+      toast.error('Please select a due date')
       return
     }
     
@@ -162,6 +172,20 @@ const AssignReviewersModal = ({
               <div className="mt-2 text-xs text-gray-500">
                 Selected: {selectedReviewers.length} reviewer(s)
               </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Due Date
+              </label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                disabled={isSubmitting}
+                required
+              />
             </div>
             
             <div className="flex justify-end space-x-2 mt-6">

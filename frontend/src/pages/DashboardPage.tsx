@@ -17,9 +17,9 @@ const DashboardPage = () => {
   })
 
   // Fetch books based on user role
-  const { data: books, isLoading: booksLoading } = useQuery<Book[]>(
-    ['books'],
-    async () => {
+  const { data: books, isLoading: booksLoading } = useQuery<Book[]>({
+    queryKey: ['books'],
+    queryFn: async () => {
       const response = await axios.get('/books')
       const apiBooks = response.data.data?.books ?? response.data.data ?? []
       const mapped: Book[] = (apiBooks as any[]).map((b: any) => ({
@@ -47,22 +47,42 @@ const DashboardPage = () => {
       }))
       return mapped
     },
-    {
-      enabled: !!user,
-    }
-  )
+    enabled: !!user,
+  })
 
   // Fetch assignments for reviewers
-  const { data: assignments, isLoading: assignmentsLoading } = useQuery<Assignment[]>(
-    ['assignments'],
-    async () => {
+  const { data: assignments, isLoading: assignmentsLoading } = useQuery({
+    queryKey: ['assignments'],
+    queryFn: async (): Promise<Assignment[]> => {
       const response = await axios.get('/assignments')
-      return response.data.data.assignments
+      const apiAssignments = response.data.data.assignments as any[]
+      // Map backend assignment format to frontend format
+      return apiAssignments.map((a: any) => ({
+        id: a.id,
+        bookId: a.book_id,
+        reviewerId: a.reviewer_id,
+        assignedDate: a.assigned_at || a.assignedDate,
+        dueDate: a.due_date || a.dueDate,
+        status: a.status,
+        book: a.book ? {
+          id: a.book.id,
+          title: a.book.title,
+          author: a.book.authors || a.book.author || '',
+          publisher: a.book.publisher || '',
+          year: a.book.year || (a.book.uploaded_at ? new Date(a.book.uploaded_at).getFullYear() : ''),
+          edition: a.book.edition || '',
+          subject: a.book.syllabus_version || a.book.subject || '',
+          uploadDate: a.book.uploaded_at || a.book.uploadDate || new Date().toISOString(),
+          status: a.book.status,
+          filePath: a.book.pdf_path || a.book.filePath || '',
+          uploaderId: a.book.uploaded_by || a.book.uploaderId || '',
+        } : undefined,
+        reviewer: a.reviewer,
+        review: a.reviews && a.reviews.length > 0 ? a.reviews[0] : undefined,
+      }))
     },
-    {
-      enabled: !!user && user.role === UserRole.REVIEWER,
-    }
-  )
+    enabled: !!user && user.role === UserRole.REVIEWER,
+  })
 
   // Calculate statistics based on user role and data
   useEffect(() => {
@@ -76,9 +96,9 @@ const DashboardPage = () => {
       let pendingAssignments = 0
       let completedAssignments = 0
 
-      if (user.role === UserRole.REVIEWER && assignments) {
-        pendingAssignments = assignments.filter(assignment => assignment.status !== 'COMPLETED').length
-        completedAssignments = assignments.filter(assignment => assignment.status === 'COMPLETED').length
+      if (user.role === UserRole.REVIEWER && assignments && Array.isArray(assignments)) {
+        pendingAssignments = assignments.filter((assignment: Assignment) => assignment.status !== 'COMPLETED').length
+        completedAssignments = assignments.filter((assignment: Assignment) => assignment.status === 'COMPLETED').length
       }
 
       setStats({
@@ -149,8 +169,8 @@ const DashboardPage = () => {
         </div>
         <div className="border-t border-gray-200">
           <ul className="divide-y divide-gray-200">
-            {user?.role === UserRole.REVIEWER && assignments && assignments.length > 0 ? (
-              assignments.slice(0, 5).map((assignment) => (
+            {user?.role === UserRole.REVIEWER && assignments && Array.isArray(assignments) && assignments.length > 0 ? (
+              assignments.slice(0, 5).map((assignment: Assignment) => (
                 <li key={assignment.id} className="px-4 py-4 sm:px-6">
                   <div className="flex items-center justify-between">
                     <div>

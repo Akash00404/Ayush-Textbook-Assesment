@@ -33,6 +33,7 @@ export interface Assignment {
   bookId: string;
   reviewerId: string;
   assignedDate: string;
+  dueDate?: string;
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
   book?: Book;
   reviewer?: {
@@ -103,4 +104,69 @@ export interface CommitteeDecision {
   comments: string;
   decidedDate: string;
   decidedBy: string;
+}
+
+// Phase 3: AI-related types
+export interface AISummary {
+  id: string;
+  bookId: string;
+  summaryText: string;
+  strengths: Array<{
+    point: string;
+    reviewerQuotes: Array<{
+      reviewerId: string;
+      reviewerName: string;
+      quote: string;
+    }>;
+  }>;
+  weaknesses: Array<{
+    point: string;
+    reviewerQuotes: Array<{
+      reviewerId: string;
+      reviewerName: string;
+      quote: string;
+    }>;
+  }>;
+  recommendations: Array<{
+    point: string;
+    reviewerQuotes: Array<{
+      reviewerId: string;
+      reviewerName: string;
+      quote: string;
+    }>;
+  }>;
+  language?: string;
+  generatedAt: string;
+  modelVersion?: string;
+  confidenceScore?: number;
+}
+
+export interface ConflictFlag {
+  id: string;
+  bookId: string;
+  criterionCode?: string;
+  conflictType: 'SCORE_VARIANCE' | 'COMMENT_DISAGREEMENT' | 'RECOMMENDATION_MISMATCH' | 'CRITERION_SPECIFIC' | 'OVERALL_DISAGREEMENT';
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  description: string;
+  reviewerIds: string[];
+  scoreVariance?: number;
+  detectedAt: string;
+  resolved: boolean;
+  resolutionNotes?: string;
+}
+
+export interface ActionSuggestion {
+  action: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  rationale: string;
+  relatedCriteria?: string[];
+}
+
+export interface ActionSuggestionsResult {
+  suggestedActions: ActionSuggestion[];
+  decisionSupport: {
+    recommendation: 'APPROVE' | 'REJECT' | 'NEEDS_REVISION';
+    confidence: number;
+    reasoning: string;
+  };
 }

@@ -1,13 +1,13 @@
-// Load environment from prisma/.env so Prisma can connect
+// Load environment from backend/.env so Prisma can connect
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
 
-// Import PrismaClient from backend's node_modules to ensure correct version
+// Import PrismaClient and other enums from local node_modules
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient, UserRole, BookStatus, AssignmentStatus } = require('../node_modules/@prisma/client');
-// Resolve bcrypt from backend's node_modules because this script runs from prisma/
+// Resolve bcrypt from backend's node_modules
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const bcrypt = require('../backend/node_modules/bcrypt');
+const bcrypt = require('../node_modules/bcrypt');
 
 const prisma = new PrismaClient();
 

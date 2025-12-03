@@ -62,6 +62,9 @@ router.post(
   bookController.uploadBook
 );
 
+// GET /books/public/approved - Get approved books for public portal (no auth required)
+router.get('/public/approved', bookController.getPublicApprovedBooks);
+
 // GET /books - Get all books
 router.get('/', authenticate, bookController.getAllBooks);
 

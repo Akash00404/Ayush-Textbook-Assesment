@@ -9,6 +9,10 @@ import axios from '../utils/axios'
 import AssignReviewersModal from '../components/AssignReviewersModal'
 import CommitteeDecisionModal from '../components/CommitteeDecisionModal'
 import BackButton from '../components/BackButton'
+import AISummaryPreview from '../components/AISummaryPreview'
+import ConflictVisualization from '../components/ConflictVisualization'
+import ActionSuggestions from '../components/ActionSuggestions'
+import UpdateAssignmentModal from '../components/UpdateAssignmentModal'
 
 const PDFViewer = lazy(() => import('../components/PDFViewer'))
 
@@ -19,6 +23,8 @@ const BookDetailPage = () => {
   const [pageNumber, setPageNumber] = useState(1)
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false)
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false)
+  const [isUpdateAssignmentModalOpen, setIsUpdateAssignmentModalOpen] = useState(false)
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
 
   // Fetch book details
   const { data: book, isLoading, refetch } = useQuery<Book>(
@@ -202,33 +208,89 @@ const BookDetailPage = () => {
               <h2 className="text-lg font-medium text-gray-900">Assigned Reviewers</h2>
               
               <ul className="divide-y divide-gray-200">
-                {book.assignments.map((assignment: Assignment) => (
-                  <li key={assignment.id} className="py-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {assignment.reviewer?.name}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {assignment.reviewer?.department} • {assignment.reviewer?.institution}
-                        </p>
+                {book.assignments.map((assignment: Assignment) => {
+                  const assignmentDueDate =
+                    assignment.dueDate ||
+                    (assignment as any).due_date ||
+                    undefined
+                  const assignedDateValue =
+                    assignment.assignedDate ||
+                    (assignment as any).assigned_at ||
+                    undefined
+                  const formattedDueDate = assignmentDueDate
+                    ? new Date(assignmentDueDate).toLocaleDateString()
+                    : 'No due date'
+                  const reviewerName =
+                    assignment.reviewer?.name || 'Reviewer'
+                  const assignmentStatus = assignment.status || 'PENDING'
+
+                  return (
+                    <li key={assignment.id} className="py-3">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {reviewerName}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {assignment.reviewer?.department} • {assignment.reviewer?.institution}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                assignmentStatus === 'COMPLETED'
+                                  ? 'bg-green-100 text-green-800'
+                                  : assignmentStatus === 'IN_PROGRESS'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}
+                            >
+                              {assignmentStatus.replace('_', ' ')}
+                            </span>
+                            {(user?.role === UserRole.SECRETARIAT ||
+                              user?.role === UserRole.ADMIN) && (
+                              <button
+                                type="button"
+                                className="text-xs text-primary-600 hover:text-primary-800"
+                                onClick={() => {
+                                  setSelectedAssignment({
+                                    ...assignment,
+                                    reviewerId:
+                                      assignment.reviewerId ||
+                                      assignment.reviewer?.id ||
+                                      (assignment as any).reviewer_id ||
+                                      '',
+                                    bookId: assignment.bookId || book.id,
+                                    assignedDate:
+                                      assignment.assignedDate ||
+                                      (assignment as any).assigned_at ||
+                                      new Date().toISOString(),
+                                    dueDate: assignmentDueDate,
+                                  })
+                                  setIsUpdateAssignmentModalOpen(true)
+                                }}
+                              >
+                                Update Deadline
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>
+                            Assigned:{' '}
+                            {assignedDateValue
+                              ? new Date(assignedDateValue).toLocaleDateString()
+                              : 'N/A'}
+                          </span>
+                          <span>
+                            Due: {formattedDueDate}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span
-                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            assignment.status === 'COMPLETED'
-                              ? 'bg-green-100 text-green-800'
-                              : assignment.status === 'IN_PROGRESS'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {assignment.status}
-                        </span>
-                      </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
@@ -332,48 +394,63 @@ const BookDetailPage = () => {
           )}
         </div>
 
-        {/* PDF Viewer */}
-        <div className="lg:col-span-2 card p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-medium text-gray-900">Book Preview</h2>
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                disabled={pageNumber <= 1}
-                onClick={previousPage}
-                className="btn-outline py-1 px-2"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-gray-700">
-                Page {pageNumber} of {numPages || '?'}
-              </span>
-              <button
-                type="button"
-                disabled={numPages !== null && pageNumber >= numPages}
-                onClick={nextPage}
-                className="btn-outline py-1 px-2"
-              >
-                Next
-              </button>
+        {/* Main Content Area */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* AI Features - Show for Committee and Secretariat when reviews are completed */}
+          {(user?.role === UserRole.COMMITTEE || user?.role === UserRole.SECRETARIAT || user?.role === UserRole.ADMIN) &&
+           book.status !== 'PENDING' && (
+            <div className="space-y-6">
+              <AISummaryPreview bookId={book.id} />
+              <ConflictVisualization bookId={book.id} />
+              {book.status === 'REVIEWED' && (
+                <ActionSuggestions bookId={book.id} />
+              )}
             </div>
-          </div>
-          
-          <div className="border border-gray-200 rounded-md overflow-auto max-h-[800px] flex justify-center bg-gray-100">
-            <Suspense
-              fallback={
-                <div className="flex justify-center items-center h-96">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
-                </div>
-              }
-            >
-              <PDFViewer
-                fileUrl={`/api/books/${id}/file`}
-                pageNumber={pageNumber}
-                onLoadSuccess={onDocumentLoadSuccess}
-                width={600}
-              />
-            </Suspense>
+          )}
+
+          {/* PDF Viewer */}
+          <div className="card p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-medium text-gray-900">Book Preview</h2>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={pageNumber <= 1}
+                  onClick={previousPage}
+                  className="btn-outline py-1 px-2"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-700">
+                  Page {pageNumber} of {numPages || '?'}
+                </span>
+                <button
+                  type="button"
+                  disabled={numPages !== null && pageNumber >= numPages}
+                  onClick={nextPage}
+                  className="btn-outline py-1 px-2"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+            
+            <div className="border border-gray-200 rounded-md overflow-auto max-h-[800px] flex justify-center bg-gray-100">
+              <Suspense
+                fallback={
+                  <div className="flex justify-center items-center h-96">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+                  </div>
+                }
+              >
+                <PDFViewer
+                  fileUrl={`/api/books/${id}/file`}
+                  pageNumber={pageNumber}
+                  onLoadSuccess={onDocumentLoadSuccess}
+                  width={600}
+                />
+              </Suspense>
+            </div>
           </div>
         </div>
       </div>
@@ -399,6 +476,20 @@ const BookDetailPage = () => {
           aggregateResults={book.aggregateResults}
         />
       )}
+
+      <UpdateAssignmentModal
+        isOpen={isUpdateAssignmentModalOpen}
+        assignment={selectedAssignment}
+        onClose={() => {
+          setIsUpdateAssignmentModalOpen(false)
+          setSelectedAssignment(null)
+        }}
+        onSuccess={() => {
+          setIsUpdateAssignmentModalOpen(false)
+          setSelectedAssignment(null)
+          refetch()
+        }}
+      />
     </div>
   )
 }

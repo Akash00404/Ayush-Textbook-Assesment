@@ -1,0 +1,422 @@
+// This is the Prisma schema file for NCISM Textbook Review System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password_hash String
+  role          UserRole
+  institution   String?
+  created_at    DateTime  @default(now())
+  last_login    DateTime?
+
+  // Relations
+  uploaded_books       Book[]              @relation("UploadedBy")
+  assigned_reviews     Assignment[]        @relation("AssignedTo")
+  created_assignments  Assignment[]        @relation("AssignedBy")
+  submitted_reviews    Review[]            @relation("SubmittedBy")
+  committee_decisions  CommitteeDecision[] @relation("DecidedBy")
+  audit_actions        AuditLog[]          @relation("ActorLogs")
+  coi_declarations     ConflictOfInterest[] @relation("COIDeclarations")
+  annotations          Annotation[]        @relation("Annotations")
+  reminders            Reminder[]          @relation("Reminders")
+  reviewer_metrics     ReviewerMetrics?    @relation("ReviewerMetrics")
+  reviewer_score       ReviewerScore?      @relation("ReviewerScores")
+  report_templates     ReportTemplate[]    @relation("ReportTemplates")
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  SECRETARIAT
+  REVIEWER
+  COMMITTEE
+}
+
+model Book {
+  id              String   @id @default(uuid())
+  title           String
+  authors         String
+  publisher       String
+  edition         String
+  syllabus_version String
+  pdf_path        String
+  uploaded_by     String
+  uploaded_at     DateTime @default(now())
+  status          BookStatus
+
+  // Relations
+  uploader           User                @relation("UploadedBy", fields: [uploaded_by], references: [id])
+  assignments        Assignment[]        @relation("BookAssignments")
+  aggregate_results  AggregateResult[]   @relation("BookResults")
+  committee_decisions CommitteeDecision[] @relation("BookDecisions")
+  ocr_content        OCRIndex[]          @relation("OCRContent")
+  ai_summaries       AISummary[]         @relation("BookAISummaries")
+  conflict_flags     ConflictFlag[]     @relation("BookConflictFlags")
+
+  @@map("books")
+}
+
+enum BookStatus {
+  PENDING_REVIEW
+  UNDER_REVIEW
+  REVIEW_COMPLETED
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+model Assignment {
+  id          String    @id @default(uuid())
+  book_id     String
+  reviewer_id String
+  assigned_by String
+  assigned_at DateTime  @default(now())
+  due_date    DateTime
+  status      AssignmentStatus
+
+  // Relations
+  book        Book      @relation("BookAssignments", fields: [book_id], references: [id])
+  reviewer    User      @relation("AssignedTo", fields: [reviewer_id], references: [id])
+  assigner    User      @relation("AssignedBy", fields: [assigned_by], references: [id])
+  reviews     Review[]  @relation("AssignmentReviews")
+  coi_declarations ConflictOfInterest[] @relation("COIDeclarations")
+  annotations Annotation[] @relation("Annotations")
+  reminders   Reminder[] @relation("Reminders")
+
+  @@map("assignments")
+}
+
+enum AssignmentStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+model Criterion {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  label       String
+  description String
+  weight      Float
+
+  @@map("criteria")
+}
+
+model Review {
+  id           String    @id @default(uuid())
+  assignment_id String
+  reviewer_id  String
+  scores       Json      // JSON object mapping criterion codes to scores
+  comments     Json      // JSON object mapping criterion codes to comments
+  submitted_at DateTime  @default(now())
+  draft_flag   Boolean   @default(true)
+
+  // Relations
+  assignment   Assignment @relation("AssignmentReviews", fields: [assignment_id], references: [id])
+  reviewer     User       @relation("SubmittedBy", fields: [reviewer_id], references: [id])
+
+  @@map("reviews")
+}
+
+model AggregateResult {
+  id           String   @id @default(uuid())
+  book_id      String
+  computed_at  DateTime @default(now())
+  stats        Json     // JSON object with statistical data
+  summary_text String   @db.Text
+
+  // Relations
+  book         Book     @relation("BookResults", fields: [book_id], references: [id])
+
+  @@map("aggregate_results")
+}
+
+model CommitteeDecision {
+  id         String   @id @default(uuid())
+  book_id    String
+  decided_by String
+  decision   Decision
+  rationale  String   @db.Text
+  decided_at DateTime @default(now())
+
+  // Relations
+  book       Book     @relation("BookDecisions", fields: [book_id], references: [id])
+  decider    User     @relation("DecidedBy", fields: [decided_by], references: [id])
+
+  @@map("committee_decisions")
+}
+
+enum Decision {
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actor_id    String
+  action      String
+  target_type String
+  target_id   String
+  timestamp   DateTime @default(now())
+  details     Json?
+
+  // Relations
+  actor       User     @relation("ActorLogs", fields: [actor_id], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Phase 2: Conflict of Interest Declaration
+model ConflictOfInterest {
+  id           String    @id @default(uuid())
+  assignment_id String
+  reviewer_id   String
+  has_conflict  Boolean
+  conflict_details String? @db.Text
+  declared_at   DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  // Relations
+  assignment   Assignment @relation("COIDeclarations", fields: [assignment_id], references: [id])
+  reviewer     User       @relation("COIDeclarations", fields: [reviewer_id], references: [id])
+
+  @@unique([assignment_id, reviewer_id])
+  @@map("conflict_of_interest")
+}
+
+// Phase 2: PDF Annotations
+model Annotation {
+  id           String    @id @default(uuid())
+  assignment_id String
+  reviewer_id   String
+  file_path     String
+  page_number   Int
+  annotation_type String  // 'highlight', 'comment', 'markup'
+  content       String?   @db.Text
+  coordinates   Json?     // {x, y, width, height} for positioning
+  created_at    DateTime  @default(now())
+
+  // Relations
+  assignment   Assignment @relation("Annotations", fields: [assignment_id], references: [id])
+  reviewer     User       @relation("Annotations", fields: [reviewer_id], references: [id])
+
+  @@map("annotations")
+}
+
+// Phase 2: OCR Index for Searchable Content
+model OCRIndex {
+  id           String    @id @default(uuid())
+  book_id      String
+  page_number  Int
+  content      String    @db.Text
+  confidence   Float     // OCR confidence score
+  language     String?   // Detected language
+  created_at   DateTime  @default(now())
+
+  // Relations
+  book         Book      @relation("OCRContent", fields: [book_id], references: [id])
+
+  @@map("ocr_index")
+}
+
+// Phase 2: Reminder System
+model Reminder {
+  id           String    @id @default(uuid())
+  assignment_id String?
+  user_id      String
+  type         ReminderType
+  message      String    @db.Text
+  scheduled_for DateTime
+  sent_at      DateTime?
+  status       ReminderStatus @default(PENDING)
+  channel      ReminderChannel
+  metadata     Json?     // Additional data for different channels
+
+  // Relations
+  assignment   Assignment? @relation("Reminders", fields: [assignment_id], references: [id])
+  user         User        @relation("Reminders", fields: [user_id], references: [id])
+
+  @@map("reminders")
+}
+
+enum ReminderType {
+  ASSIGNMENT_DUE
+  ASSIGNMENT_OVERDUE
+  REVIEW_SUBMISSION_REMINDER
+  COMMITTEE_DECISION_DUE
+  CUSTOM
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum ReminderChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP
+}
+
+// Phase 2: Reviewer Performance Metrics
+model ReviewerMetrics {
+  id                    String    @id @default(uuid())
+  reviewer_id           String
+  total_assignments     Int       @default(0)
+  completed_assignments Int       @default(0)
+  overdue_assignments   Int       @default(0)
+  average_turnaround    Float?    // in hours
+  reliability_score     Float?    // 0-100
+  acceptance_rate       Float?    // 0-100
+  rejection_rate        Float?    // 0-100
+  last_updated          DateTime  @default(now())
+
+  // Relations
+  reviewer              User      @relation("ReviewerMetrics", fields: [reviewer_id], references: [id])
+
+  @@unique([reviewer_id])
+  @@map("reviewer_metrics")
+}
+
+// Phase 2: Report Templates
+model ReportTemplate {
+  id           String    @id @default(uuid())
+  name         String
+  description  String?   @db.Text
+  template_data Json     // PDF template configuration
+  is_active    Boolean   @default(true)
+  created_by   String
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Relations
+  creator      User      @relation("ReportTemplates", fields: [created_by], references: [id])
+
+  @@map("report_templates")
+}
+
+// Phase 2: Background Jobs
+model BackgroundJob {
+  id           String    @id @default(uuid())
+  type         JobType
+  status       JobStatus @default(PENDING)
+  payload      Json      // Job-specific data
+  result       Json?     // Job result data
+  error_message String?  @db.Text
+  scheduled_at DateTime?
+  started_at   DateTime?
+  completed_at DateTime?
+  retry_count  Int       @default(0)
+  max_retries  Int       @default(3)
+
+  @@map("background_jobs")
+}
+
+enum JobType {
+  OCR_PROCESSING
+  REMINDER_SEND
+  REPORT_GENERATION
+  METRICS_CALCULATION
+  EMAIL_SEND
+  SMS_SEND
+  WHATSAPP_SEND
+  AI_SUMMARIZATION
+  CONFLICT_DETECTION
+  REVIEWER_SCORE_CALCULATION
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Phase 3: AI Summary
+model AISummary {
+  id                String    @id @default(uuid())
+  book_id           String
+  summary_text      String    @db.Text
+  strengths         Json      // Array of strength points with reviewer quotes
+  weaknesses        Json      // Array of weakness points with reviewer quotes
+  recommendations   Json      // Array of recommendations with reviewer quotes
+  language          String?   // Detected/specified language
+  generated_at      DateTime  @default(now())
+  model_version     String?   // Gemini model version used
+  confidence_score  Float?    // AI confidence in summary quality
+
+  // Relations
+  book              Book      @relation("BookAISummaries", fields: [book_id], references: [id])
+
+  @@map("ai_summaries")
+}
+
+// Phase 3: Conflict Detection
+model ConflictFlag {
+  id                String    @id @default(uuid())
+  book_id           String
+  criterion_code    String?   // Specific criterion with conflict, null if overall
+  conflict_type     ConflictType
+  severity          ConflictSeverity
+  description       String    @db.Text
+  reviewer_ids      Json      // Array of reviewer IDs involved in conflict
+  score_variance    Float?    // Statistical variance in scores
+  detected_at       DateTime  @default(now())
+  resolved          Boolean   @default(false)
+  resolution_notes  String?   @db.Text
+
+  // Relations
+  book              Book      @relation("BookConflictFlags", fields: [book_id], references: [id])
+
+  @@map("conflict_flags")
+}
+
+enum ConflictType {
+  SCORE_VARIANCE
+  COMMENT_DISAGREEMENT
+  RECOMMENDATION_MISMATCH
+  CRITERION_SPECIFIC
+  OVERALL_DISAGREEMENT
+}
+
+enum ConflictSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// Phase 3: Enhanced Reviewer Scoring
+model ReviewerScore {
+  id                    String    @id @default(uuid())
+  reviewer_id           String    @unique
+  consistency_score     Float?    // 0-100: How consistent reviewer is across reviews
+  timeliness_score      Float?    // 0-100: Based on on-time submissions
+  quality_score         Float?    // 0-100: Based on review depth and usefulness
+  reliability_score      Float?    // 0-100: Overall reliability metric
+  review_count          Int       @default(0)
+  average_review_quality Float?   // Average quality rating from committee
+  last_calculated       DateTime  @default(now())
+
+  // Relations
+  reviewer              User      @relation("ReviewerScores", fields: [reviewer_id], references: [id])
+
+  @@map("reviewer_scores")
+}

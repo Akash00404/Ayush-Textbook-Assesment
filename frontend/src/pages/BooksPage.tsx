@@ -47,6 +47,24 @@ const BooksPage = () => {
     }
   )
 
+  // Reviewer: fetch own assignments to enable "Start Review" action
+  const { data: myAssignments } = useQuery<any[]>(
+    ['assignments'],
+    async () => {
+      const response = await axios.get('/assignments')
+      const apiAssignments = response.data.data.assignments as any[]
+      // Map backend assignment format
+      return apiAssignments.map((a: any) => ({
+        id: a.id,
+        bookId: a.book_id,
+        book: a.book,
+        book_id: a.book_id,
+        status: a.status,
+      }))
+    },
+    { enabled: user?.role === UserRole.REVIEWER }
+  )
+
   // Filter books based on status and search term
   const booksList = data?.books ?? []
   const filteredBooks = booksList.filter(book => {
@@ -159,6 +177,14 @@ const BooksPage = () => {
                 >
                   Status
                 </th>
+                {(user?.role === UserRole.SECRETARIAT || user?.role === UserRole.ADMIN) && (
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    Assignments
+                  </th>
+                )}
                 <th
                   scope="col"
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
@@ -202,22 +228,51 @@ const BooksPage = () => {
                         {book.status.replace('_', ' ')}
                       </span>
                     </td>
+                    {(user?.role === UserRole.SECRETARIAT || user?.role === UserRole.ADMIN) && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {book.assignments && book.assignments.length > 0 ? (
+                          <div className="text-sm">
+                            <div className="text-gray-900 font-medium">
+                              {book.assignments.filter((a: any) => a.status === 'COMPLETED').length} / {book.assignments.length} Completed
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {book.assignments.filter((a: any) => a.status === 'PENDING').length} Pending
+                              {book.assignments.filter((a: any) => a.status === 'IN_PROGRESS').length > 0 && (
+                                <> • {book.assignments.filter((a: any) => a.status === 'IN_PROGRESS').length} In Progress</>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">No assignments</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(book.uploadDate).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Link
-                        to={`/books/${book.id}`}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        View
-                      </Link>
+                      {user?.role === UserRole.REVIEWER ? (
+                        (() => {
+                          const a = (myAssignments || []).find((asgn: any) => asgn.book?.id === book.id || asgn.book_id === book.id)
+                          return a ? (
+                            <Link to={`/review/${a.id}`} className="text-primary-600 hover:text-primary-900">
+                              Start Review
+                            </Link>
+                          ) : (
+                            <span className="text-gray-400">Not assigned</span>
+                          )
+                        })()
+                      ) : (
+                        <Link to={`/books/${book.id}`} className="text-primary-600 hover:text-primary-900">
+                          View
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={(user?.role === UserRole.SECRETARIAT || user?.role === UserRole.ADMIN) ? 7 : 6} className="px-6 py-4 text-center text-sm text-gray-500">
                     No books found
                   </td>
                 </tr>

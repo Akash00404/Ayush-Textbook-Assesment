@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import BackButton from '../components/BackButton'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
 import { Suspense, lazy } from 'react'
 import { toast } from 'react-toastify'
 import { useAuthStore } from '../stores/authStore'
-import { Book, Assignment, Criteria } from '../types/book'
+import { Assignment, Criteria } from '../types/book'
 import axios from '../utils/axios'
+import COIDeclarationModal from '../components/COIDeclarationModal'
+import AnnotationToolbar from '../components/AnnotationToolbar'
 
 const PDFViewer = lazy(() => import('../components/PDFViewer'))
 
@@ -19,52 +21,126 @@ interface CriteriaScore {
 type Recommendation = 'APPROVE' | 'REVISIONS_REQUESTED' | 'REJECT'
 
 const ReviewPage = () => {
-  const { id } = useParams<{ id: string }>()
+  const { assignmentId } = useParams<{ assignmentId: string }>()
+  const id = assignmentId
   const navigate = useNavigate()
   const { user } = useAuthStore()
+  const queryClient = useQueryClient()
   const [numPages, setNumPages] = useState<number | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
   const [criteriaScores, setCriteriaScores] = useState<CriteriaScore[]>([])
   const [recommendation, setRecommendation] = useState<Recommendation>('APPROVE')
   const [comments, setComments] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showCOIModal, setShowCOIModal] = useState(false)
+  const [coiDeclared, setCoiDeclared] = useState(false)
 
   // Fetch assignment details
-  const { data: assignment, isLoading: isLoadingAssignment } = useQuery<Assignment>(
-    ['assignment', id],
-    async () => {
+  const { data: assignment, isLoading: isLoadingAssignment } = useQuery<Assignment>({
+    queryKey: ['assignment', id],
+    queryFn: async () => {
       const response = await axios.get(`/assignments/${id}`)
-      return response.data.data.assignment
+      const apiAssignment = response.data.data.assignment as any
+      // Map backend assignment format to frontend format
+      const mapped: Assignment = {
+        id: apiAssignment.id,
+        bookId: apiAssignment.book_id,
+        reviewerId: apiAssignment.reviewer_id,
+        assignedDate: apiAssignment.assigned_at || apiAssignment.assignedDate,
+        dueDate: apiAssignment.due_date || apiAssignment.dueDate,
+        status: apiAssignment.status,
+        book: apiAssignment.book
+          ? {
+              id: apiAssignment.book.id,
+              title: apiAssignment.book.title,
+              author:
+                apiAssignment.book.authors || apiAssignment.book.author || '',
+              publisher: apiAssignment.book.publisher || '',
+              year:
+                apiAssignment.book.year ||
+                (apiAssignment.book.uploaded_at
+                  ? new Date(apiAssignment.book.uploaded_at).getFullYear()
+                  : ''),
+              edition: apiAssignment.book.edition || '',
+              subject:
+                apiAssignment.book.syllabus_version ||
+                apiAssignment.book.subject ||
+                '',
+              uploadDate:
+                apiAssignment.book.uploaded_at ||
+                apiAssignment.book.uploadDate ||
+                new Date().toISOString(),
+              // Map backend book status (PENDING_REVIEW, REVIEW_COMPLETED, NEEDS_REVISION)
+              // to frontend BookStatus (PENDING, REVIEWED, REVISIONS_REQUESTED)
+              status:
+                apiAssignment.book.status === 'PENDING_REVIEW'
+                  ? 'PENDING'
+                  : apiAssignment.book.status === 'REVIEW_COMPLETED'
+                  ? 'REVIEWED'
+                  : apiAssignment.book.status === 'NEEDS_REVISION'
+                  ? 'REVISIONS_REQUESTED'
+                  : apiAssignment.book.status,
+              filePath:
+                apiAssignment.book.pdf_path || apiAssignment.book.filePath || '',
+              uploaderId:
+                apiAssignment.book.uploaded_by ||
+                apiAssignment.book.uploaderId ||
+                '',
+              uploader: apiAssignment.book.uploader,
+            }
+          : undefined,
+        reviewer: apiAssignment.reviewer,
+        review: apiAssignment.reviews && apiAssignment.reviews.length > 0 ? apiAssignment.reviews[0] : undefined,
+      }
+      return mapped
     },
-    {
-      enabled: !!id,
-      onError: () => {
-        toast.error('Failed to load assignment')
-        navigate('/dashboard')
-      },
-    }
-  )
+    enabled: !!id,
+    onError: (error) => {
+      console.error('Assignment fetch error:', error)
+      toast.error('Failed to load assignment')
+      navigate('/dashboard')
+    },
+  })
 
-  // Fetch book details
-  const { data: book, isLoading: isLoadingBook } = useQuery<Book>(
-    ['book', assignment?.bookId],
-    async () => {
-      const response = await axios.get(`/books/${assignment?.bookId}`)
-      return response.data.data.book
-    },
-    {
-      enabled: !!assignment?.bookId,
-    }
-  )
+  // Use book from assignment if available, otherwise fetch separately
+  const book = assignment?.book
 
   // Fetch criteria
-  const { data: criteria, isLoading: isLoadingCriteria } = useQuery<Criteria[]>(
-    ['criteria'],
-    async () => {
-      const response = await axios.get('/criteria')
-      return response.data.data.criteria
+  const { data: criteria, isLoading: isLoadingCriteria } = useQuery<Criteria[]>({
+    queryKey: ['criteria'],
+    queryFn: async () => {
+      try {
+        const response = await axios.get('/criteria')
+        return response.data.data || []
+      } catch (error) {
+        console.error('Failed to fetch criteria:', error)
+        return []
+      }
+    },
+  })
+
+  // Fetch COI declaration
+  useQuery({
+    queryKey: ['coi', id],
+    queryFn: async () => {
+      const response = await axios.get(`/coi/assignment/${id}`)
+      return response.data.data
+    },
+    enabled: !!id,
+    onSuccess: (data) => {
+      setCoiDeclared(!!data)
     }
-  )
+  })
+
+  // Fetch annotations
+  const { refetch: refetchAnnotations } = useQuery({
+    queryKey: ['annotations', id],
+    queryFn: async () => {
+      const response = await axios.get(`/annotations/assignment/${id}`)
+      return response.data.data
+    },
+    enabled: !!id,
+  })
 
   // Initialize criteria scores when criteria are loaded
   useEffect(() => {
@@ -81,11 +157,11 @@ const ReviewPage = () => {
   // Submit review mutation
   const submitReviewMutation = useMutation(
     async (data: {
-      criteriaScores: CriteriaScore[]
-      recommendation: Recommendation
-      comments: string
+      scores: Record<string, number>
+      comments: Record<string, string>
+      draft_flag: boolean
     }) => {
-      return axios.post(`/assignments/${id}/review`, data)
+      return axios.post(`/reviews/${id}/review`, data)
     },
     {
       onSuccess: () => {
@@ -141,10 +217,23 @@ const ReviewPage = () => {
     }
     
     setIsSubmitting(true)
+    // Build payload expected by backend: scores and comments keyed by criterion code
+    const scores: Record<string, number> = {}
+    const commentsObj: Record<string, string> = {}
+    criteria?.forEach((c) => {
+      const found = criteriaScores.find((s) => s.criteriaId === c.id)
+      if (found) {
+        scores[c.code] = found.score
+        commentsObj[c.code] = ''
+      }
+    })
+    // Add overall comment
+    commentsObj['OVERALL'] = comments
+
     submitReviewMutation.mutate({
-      criteriaScores,
-      recommendation,
-      comments,
+      scores,
+      comments: commentsObj,
+      draft_flag: false,
     })
   }
 
@@ -154,15 +243,44 @@ const ReviewPage = () => {
   // Check if the current user is the assigned reviewer
   const isAssignedReviewer = assignment?.reviewerId === user?.id
 
-  if (isLoadingAssignment || isLoadingBook || isLoadingCriteria) {
+  if (isLoadingAssignment || isLoadingCriteria) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+        <p className="ml-4 text-gray-600">Loading assignment details...</p>
       </div>
     )
   }
 
-  if (!assignment || !book || !isAssignedReviewer) {
+  if (!assignment) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-semibold text-gray-900">Assignment not found</h2>
+        <p className="mt-2 text-gray-500">
+          The assignment you're looking for doesn't exist or you don't have permission to view it.
+        </p>
+        <Link to="/dashboard" className="mt-4 inline-block btn-primary">
+          Back to Dashboard
+        </Link>
+      </div>
+    )
+  }
+
+  if (!book) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-semibold text-gray-900">Book not found</h2>
+        <p className="mt-2 text-gray-500">
+          The book associated with this assignment could not be loaded.
+        </p>
+        <Link to="/dashboard" className="mt-4 inline-block btn-primary">
+          Back to Dashboard
+        </Link>
+      </div>
+    )
+  }
+
+  if (!isAssignedReviewer) {
     return (
       <div className="text-center py-12">
         <h2 className="text-2xl font-semibold text-gray-900">Assignment not found</h2>
@@ -241,6 +359,37 @@ const ReviewPage = () => {
             </div>
           </div>
 
+          {/* COI Declaration Check */}
+          {!coiDeclared && (
+            <div className="card p-4 border-l-4 border-yellow-400 bg-yellow-50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-yellow-800">
+                    Conflict of Interest Declaration Required
+                  </h3>
+                  <p className="mt-1 text-sm text-yellow-700">
+                    Please declare any potential conflicts of interest before proceeding with your review.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCOIModal(true)}
+                  className="ml-4 px-4 py-2 text-sm font-medium text-yellow-800 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200"
+                >
+                  Declare COI
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Annotation Toolbar */}
+          {coiDeclared && (
+            <AnnotationToolbar
+              assignmentId={id!}
+              pageNumber={pageNumber}
+              onAnnotationAdded={() => refetchAnnotations()}
+            />
+          )}
+
           {/* PDF Viewer */}
           <div className="card p-4">
             <div className="flex justify-between items-center mb-4">
@@ -315,16 +464,16 @@ const ReviewPage = () => {
                           {criterion.label}
                         </label>
                         <span className="text-sm font-medium text-primary-600">
-                          {criteriaScores.find(c => c.criteriaId === criterion.id)?.score || 0}/10
+                          {criteriaScores.find(c => c.criteriaId === criterion.id)?.score || 0}/5
                         </span>
                       </div>
                       <input
                         type="range"
                         id={`criteria-${criterion.id}`}
                         min="1"
-                        max="10"
+                        max="5"
                         step="1"
-                        value={criteriaScores.find(c => c.criteriaId === criterion.id)?.score || 5}
+                        value={criteriaScores.find(c => c.criteriaId === criterion.id)?.score || 3}
                         onChange={(e) => handleScoreChange(criterion.id, parseInt(e.target.value))}
                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                         disabled={isSubmitting}
@@ -438,6 +587,19 @@ const ReviewPage = () => {
           </div>
         </div>
       </div>
+
+      {/* COI Declaration Modal */}
+      <COIDeclarationModal
+        isOpen={showCOIModal}
+        onClose={() => setShowCOIModal(false)}
+        assignmentId={id!}
+        bookTitle={book.title}
+        onSuccess={() => {
+          setCoiDeclared(true)
+          // Refetch COI data
+          queryClient.invalidateQueries({ queryKey: ['coi', id] })
+        }}
+      />
     </div>
   )
 }
