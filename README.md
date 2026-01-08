@@ -78,3 +78,5 @@ The frontend communicates with the backend API through Axios. The base URL is co
 ## Authentication
 
 Authentication is handled using JWT tokens stored in localStorage. The auth state is managed by Zustand in `src/stores/authStore.ts`.
+
+
